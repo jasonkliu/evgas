@@ -135,7 +135,7 @@ export default function Home() {
               className="w-full accent-blue-600"
             />
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Drive too fast → reduces both mpg and EV efficiency by this %.
+              Reduces both mpg and EV efficiency by this %.
             </p>
           </div>
         </header>
