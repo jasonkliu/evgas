@@ -6,11 +6,21 @@ const KWH_PER_100KM = 16.9;
 const KM_PER_MILE = 1.609344;
 const KWH_PER_MILE = (KWH_PER_100KM / 100) * KM_PER_MILE;
 
-const MPG_CITY = 18;
-const MPG_HIGHWAY = 24;
-const MPG_COMBINED = 1 / (0.55 / MPG_CITY + 0.45 / MPG_HIGHWAY);
+const ELECTRICITY_PRESETS = [
+  { label: "Sacramento", price: 0.155 },
+  { label: "San Francisco", price: 0.32 },
+  { label: "Supercharger", price: 0.48 },
+  { label: "Electrify America", price: 0.64 },
+];
 
-const TANK_GALLONS = 14.3;
+const GAS_CARS = [
+  { id: "default", label: "Default (18/24)", city: 18, highway: 24, tank: 14.3 },
+  { id: "rav4", label: "Toyota RAV4 (27/35)", city: 27, highway: 35, tank: 14.5 },
+];
+
+function combinedMpg(city, highway) {
+  return 1 / (0.55 / city + 0.45 / highway);
+}
 
 function equivalentGasPrice(pricePerKWh, mpg) {
   return mpg * KWH_PER_MILE * pricePerKWh;
@@ -34,6 +44,10 @@ function fmtMiles(n) {
 export default function Home() {
   const [pricePerKWh, setPricePerKWh] = useState("0.32");
   const [pricePerGallon, setPricePerGallon] = useState("6.06");
+  const [carId, setCarId] = useState("default");
+
+  const car = GAS_CARS.find((c) => c.id === carId) ?? GAS_CARS[0];
+  const mpgCombined = combinedMpg(car.city, car.highway);
 
   const kwh = parseFloat(pricePerKWh);
   const gas = parseFloat(pricePerGallon);
@@ -42,41 +56,63 @@ export default function Home() {
     const evCostPerMile = KWH_PER_MILE * kwh;
     return {
       evCostPerMile,
-      city: equivalentGasPrice(kwh, MPG_CITY),
-      highway: equivalentGasPrice(kwh, MPG_HIGHWAY),
-      combined: equivalentGasPrice(kwh, MPG_COMBINED),
+      city: equivalentGasPrice(kwh, car.city),
+      highway: equivalentGasPrice(kwh, car.highway),
+      combined: equivalentGasPrice(kwh, mpgCombined),
     };
-  }, [kwh]);
+  }, [kwh, car, mpgCombined]);
 
   const gasResults = useMemo(() => {
-    const fillCost = TANK_GALLONS * gas;
+    const fillCost = car.tank * gas;
     const evKWh = Number.isFinite(kwh) && kwh > 0 ? fillCost / kwh : NaN;
     const evMiles = Number.isFinite(evKWh) ? evKWh / KWH_PER_MILE : NaN;
     return {
       fillCost,
-      rangeCity: TANK_GALLONS * MPG_CITY,
-      rangeHighway: TANK_GALLONS * MPG_HIGHWAY,
-      rangeCombined: TANK_GALLONS * MPG_COMBINED,
+      rangeCity: car.tank * car.city,
+      rangeHighway: car.tank * car.highway,
+      rangeCombined: car.tank * mpgCombined,
       evKWh,
       evMiles,
     };
-  }, [gas, kwh]);
+  }, [gas, kwh, car, mpgCombined]);
 
   return (
     <main className="min-h-screen p-6 bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-900 dark:to-slate-800">
       <div className="max-w-6xl mx-auto space-y-6">
-        <header className="space-y-1 text-center">
+        <header className="space-y-3 text-center">
           <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100">
             EV vs Gas Calculator
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Tesla Model Y LR AWD (2020–2024) · Gas car @ {MPG_CITY} mpg city /{" "}
-            {MPG_HIGHWAY} mpg highway · {TANK_GALLONS} gal tank
+            Tesla Model Y LR AWD (2020–2024) · {KWH_PER_100KM} kWh/100km
           </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <span className="text-sm text-slate-700 dark:text-slate-300">
+              Gas car:
+            </span>
+            {GAS_CARS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setCarId(c.id)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium border transition ${
+                  c.id === carId
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              · {car.tank} gal tank · {mpgCombined.toFixed(1)} mpg combined
+            </span>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Panel 1: kWh price -> equivalent gas price */}
+          {/* Panel 1 */}
           <Panel title="From electricity price → equivalent gas price">
             <NumberInput
               id="kwh-price"
@@ -87,6 +123,13 @@ export default function Home() {
               hint={`EV efficiency: ${KWH_PER_100KM} kWh/100km ≈ ${KWH_PER_MILE.toFixed(
                 3
               )} kWh/mile`}
+            />
+
+            <Presets
+              presets={ELECTRICITY_PRESETS}
+              currentValue={pricePerKWh}
+              onSelect={(p) => setPricePerKWh(String(p))}
+              format={(p) => `$${p.toFixed(4)}/kWh`}
             />
 
             <Stat
@@ -105,18 +148,18 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-3">
                 <ResultCard
                   label="City"
-                  sub={`${MPG_CITY} mpg`}
+                  sub={`${car.city} mpg`}
                   value={fmtUSD(evResults.city)}
                 />
                 <ResultCard
                   label="Combined"
-                  sub={`${MPG_COMBINED.toFixed(1)} mpg`}
+                  sub={`${mpgCombined.toFixed(1)} mpg`}
                   value={fmtUSD(evResults.combined)}
                   highlight
                 />
                 <ResultCard
                   label="Highway"
-                  sub={`${MPG_HIGHWAY} mpg`}
+                  sub={`${car.highway} mpg`}
                   value={fmtUSD(evResults.highway)}
                 />
               </div>
@@ -127,7 +170,7 @@ export default function Home() {
             </div>
           </Panel>
 
-          {/* Panel 2: gas price -> tank fill, range, EV equivalent */}
+          {/* Panel 2 */}
           <Panel title="From gas price → tank cost & EV range for the same money">
             <NumberInput
               id="gas-price"
@@ -135,11 +178,11 @@ export default function Home() {
               prefix="$"
               value={pricePerGallon}
               onChange={setPricePerGallon}
-              hint={`Tank size: ${TANK_GALLONS} gallons`}
+              hint={`Tank size: ${car.tank} gallons`}
             />
 
             <Stat
-              label={`Cost to fill ${TANK_GALLONS} gal tank`}
+              label={`Cost to fill ${car.tank} gal tank`}
               value={fmtUSD(gasResults.fillCost)}
             />
 
@@ -150,18 +193,18 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-3">
                 <ResultCard
                   label="City"
-                  sub={`${MPG_CITY} mpg`}
+                  sub={`${car.city} mpg`}
                   value={fmtMiles(gasResults.rangeCity)}
                 />
                 <ResultCard
                   label="Combined"
-                  sub={`${MPG_COMBINED.toFixed(1)} mpg`}
+                  sub={`${mpgCombined.toFixed(1)} mpg`}
                   value={fmtMiles(gasResults.rangeCombined)}
                   highlight
                 />
                 <ResultCard
                   label="Highway"
-                  sub={`${MPG_HIGHWAY} mpg`}
+                  sub={`${car.highway} mpg`}
                   value={fmtMiles(gasResults.rangeHighway)}
                 />
               </div>
@@ -232,6 +275,35 @@ function NumberInput({ id, label, prefix, value, onChange, hint }) {
       {hint && (
         <p className="text-xs text-slate-500 dark:text-slate-400">{hint}</p>
       )}
+    </div>
+  );
+}
+
+function Presets({ presets, currentValue, onSelect, format }) {
+  const current = parseFloat(currentValue);
+  return (
+    <div className="flex flex-wrap gap-2">
+      {presets.map((p) => {
+        const active = Math.abs((current ?? NaN) - p.price) < 1e-9;
+        return (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onSelect(p.price)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
+              active
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
+            }`}
+            title={format(p.price)}
+          >
+            {p.label}{" "}
+            <span className={active ? "opacity-90" : "opacity-60"}>
+              ${p.price.toFixed(p.price < 1 ? 4 : 2).replace(/0+$/, "").replace(/\.$/, "")}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
