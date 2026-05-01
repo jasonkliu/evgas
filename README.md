@@ -1,4 +1,4 @@
-# evgas
+# https://evgas.vercel.app/
 
 A small Next.js calculator that compares the cost of driving an EV vs a gas car.
 Built with Next.js (App Router) + Tailwind CSS, deployable to Vercel.
