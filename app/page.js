@@ -45,36 +45,42 @@ export default function Home() {
   const [pricePerKWh, setPricePerKWh] = useState("0.32");
   const [pricePerGallon, setPricePerGallon] = useState("6.06");
   const [carId, setCarId] = useState("default");
+  const [badDrivingPct, setBadDrivingPct] = useState(5);
 
   const car = GAS_CARS.find((c) => c.id === carId) ?? GAS_CARS[0];
-  const mpgCombined = combinedMpg(car.city, car.highway);
+  const penalty = Math.max(0, Math.min(10, badDrivingPct)) / 100;
+  const effMpgCity = car.city * (1 - penalty);
+  const effMpgHighway = car.highway * (1 - penalty);
+  const effMpgCombined = combinedMpg(effMpgCity, effMpgHighway);
+  const effKWhPerMile = KWH_PER_MILE / (1 - penalty);
+  const mpgCombined = effMpgCombined;
 
   const kwh = parseFloat(pricePerKWh);
   const gas = parseFloat(pricePerGallon);
 
   const evResults = useMemo(() => {
-    const evCostPerMile = KWH_PER_MILE * kwh;
+    const evCostPerMile = effKWhPerMile * kwh;
     return {
       evCostPerMile,
-      city: equivalentGasPrice(kwh, car.city),
-      highway: equivalentGasPrice(kwh, car.highway),
-      combined: equivalentGasPrice(kwh, mpgCombined),
+      city: effMpgCity * effKWhPerMile * kwh,
+      highway: effMpgHighway * effKWhPerMile * kwh,
+      combined: effMpgCombined * effKWhPerMile * kwh,
     };
-  }, [kwh, car, mpgCombined]);
+  }, [kwh, effKWhPerMile, effMpgCity, effMpgHighway, effMpgCombined]);
 
   const gasResults = useMemo(() => {
     const fillCost = car.tank * gas;
     const evKWh = Number.isFinite(kwh) && kwh > 0 ? fillCost / kwh : NaN;
-    const evMiles = Number.isFinite(evKWh) ? evKWh / KWH_PER_MILE : NaN;
+    const evMiles = Number.isFinite(evKWh) ? evKWh / effKWhPerMile : NaN;
     return {
       fillCost,
-      rangeCity: car.tank * car.city,
-      rangeHighway: car.tank * car.highway,
-      rangeCombined: car.tank * mpgCombined,
+      rangeCity: car.tank * effMpgCity,
+      rangeHighway: car.tank * effMpgHighway,
+      rangeCombined: car.tank * effMpgCombined,
       evKWh,
       evMiles,
     };
-  }, [gas, kwh, car, mpgCombined]);
+  }, [gas, kwh, car, effKWhPerMile, effMpgCity, effMpgHighway, effMpgCombined]);
 
   return (
     <main className="min-h-screen p-6 bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-900 dark:to-slate-800">
@@ -106,8 +112,31 @@ export default function Home() {
               </button>
             ))}
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              · {car.tank} gal tank · {mpgCombined.toFixed(1)} mpg combined
+              · {car.tank} gal tank · {effMpgCombined.toFixed(1)} mpg combined
+              {penalty > 0 ? ` (after ${(penalty * 100).toFixed(0)}% penalty)` : ""}
             </span>
+          </div>
+
+          <div className="max-w-md mx-auto pt-2 space-y-1">
+            <div className="flex items-center justify-between text-sm text-slate-700 dark:text-slate-300">
+              <label htmlFor="bad-driving">"I wanna go fast!" -Ricky Bobby</label>
+              <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
+                {badDrivingPct}%
+              </span>
+            </div>
+            <input
+              id="bad-driving"
+              type="range"
+              min="0"
+              max="10"
+              step="0.5"
+              value={badDrivingPct}
+              onChange={(e) => setBadDrivingPct(parseFloat(e.target.value))}
+              className="w-full accent-blue-600"
+            />
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Drive too fast → reduces both mpg and EV efficiency by this %.
+            </p>
           </div>
         </header>
 
@@ -120,9 +149,9 @@ export default function Home() {
               prefix="$"
               value={pricePerKWh}
               onChange={setPricePerKWh}
-              hint={`EV efficiency: ${KWH_PER_100KM} kWh/100km ≈ ${KWH_PER_MILE.toFixed(
+              hint={`EV efficiency: ${KWH_PER_100KM} kWh/100km ≈ ${effKWhPerMile.toFixed(
                 3
-              )} kWh/mile`}
+              )} kWh/mile${penalty > 0 ? ` (after ${(penalty * 100).toFixed(0)}% penalty)` : ""}`}
             />
 
             <Presets
@@ -148,18 +177,18 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-3">
                 <ResultCard
                   label="City"
-                  sub={`${car.city} mpg`}
+                  sub={`${effMpgCity.toFixed(1)} mpg`}
                   value={fmtUSD(evResults.city)}
                 />
                 <ResultCard
                   label="Combined"
-                  sub={`${mpgCombined.toFixed(1)} mpg`}
+                  sub={`${effMpgCombined.toFixed(1)} mpg`}
                   value={fmtUSD(evResults.combined)}
                   highlight
                 />
                 <ResultCard
                   label="Highway"
-                  sub={`${car.highway} mpg`}
+                  sub={`${effMpgHighway.toFixed(1)} mpg`}
                   value={fmtUSD(evResults.highway)}
                 />
               </div>
@@ -186,6 +215,15 @@ export default function Home() {
               value={fmtUSD(gasResults.fillCost)}
             />
 
+            <Stat
+              label="Gas cost per mile (combined)"
+              value={
+                Number.isFinite(gas)
+                  ? `${((gas / mpgCombined) * 100).toFixed(2)}¢ / mile`
+                  : "—"
+              }
+            />
+
             <div className="space-y-3">
               <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                 Range on a full tank
@@ -193,18 +231,18 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-3">
                 <ResultCard
                   label="City"
-                  sub={`${car.city} mpg`}
+                  sub={`${effMpgCity.toFixed(1)} mpg`}
                   value={fmtMiles(gasResults.rangeCity)}
                 />
                 <ResultCard
                   label="Combined"
-                  sub={`${mpgCombined.toFixed(1)} mpg`}
+                  sub={`${effMpgCombined.toFixed(1)} mpg`}
                   value={fmtMiles(gasResults.rangeCombined)}
                   highlight
                 />
                 <ResultCard
                   label="Highway"
-                  sub={`${car.highway} mpg`}
+                  sub={`${effMpgHighway.toFixed(1)} mpg`}
                   value={fmtMiles(gasResults.rangeHighway)}
                 />
               </div>
