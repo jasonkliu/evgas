@@ -13,13 +13,19 @@ const ELECTRICITY_PRESETS = [
   { label: "Electrify America", price: 0.64 },
 ];
 
-const GAS_CARS = [
-  { id: "default", label: "Default (18/24)", city: 18, highway: 24, tank: 14.3 },
-  { id: "rav4", label: "Toyota RAV4 (27/35)", city: 27, highway: 35, tank: 14.5 },
+const DEFAULT_GAS_CARS = [
+  { id: "default", label: "Default", city: 18, highway: 24, tank: 14.3 },
+  { id: "rav4", label: "Toyota RAV4", city: 27, highway: 35, tank: 14.5 },
+  { id: "large-suv", label: "Large SUV", city: 18, highway: 27, tank: 22.4 },
 ];
 
 function combinedMpg(city, highway) {
   return 1 / (0.55 / city + 0.45 / highway);
+}
+
+function toPositive(v, fallback) {
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 function equivalentGasPrice(pricePerKWh, mpg) {
@@ -46,8 +52,25 @@ export default function Home() {
   const [pricePerGallon, setPricePerGallon] = useState("6.06");
   const [carId, setCarId] = useState("default");
   const [badDrivingPct, setBadDrivingPct] = useState(5);
+  const [gasCars, setGasCars] = useState(DEFAULT_GAS_CARS);
 
-  const car = GAS_CARS.find((c) => c.id === carId) ?? GAS_CARS[0];
+  const rawCar = gasCars.find((c) => c.id === carId) ?? gasCars[0];
+  const car = useMemo(
+    () => ({
+      ...rawCar,
+      city: toPositive(rawCar.city, 1),
+      highway: toPositive(rawCar.highway, 1),
+      tank: toPositive(rawCar.tank, 0.1),
+    }),
+    [rawCar]
+  );
+
+  function updateCar(id, field, value) {
+    setGasCars((cars) =>
+      cars.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
+  }
+
   const penalty = Math.max(0, Math.min(10, badDrivingPct)) / 100;
   const effMpgCity = car.city * (1 - penalty);
   const effMpgHighway = car.highway * (1 - penalty);
@@ -97,7 +120,7 @@ export default function Home() {
             <span className="text-sm text-slate-700 dark:text-slate-300">
               Gas car:
             </span>
-            {GAS_CARS.map((c) => (
+            {gasCars.map((c) => (
               <button
                 key={c.id}
                 type="button"
@@ -108,13 +131,34 @@ export default function Home() {
                     : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700"
                 }`}
               >
-                {c.label}
+                {c.label} ({toPositive(c.city, 0)}/{toPositive(c.highway, 0)})
               </button>
             ))}
             <span className="text-xs text-slate-500 dark:text-slate-400">
               · {car.tank} gal tank · {effMpgCombined.toFixed(1)} mpg combined
               {penalty > 0 ? ` (after ${(penalty * 100).toFixed(0)}% penalty)` : ""}
             </span>
+          </div>
+
+          <div className="max-w-md mx-auto pt-2 grid grid-cols-3 gap-2">
+            <SmallNumberInput
+              id={`city-${car.id}`}
+              label="City mpg"
+              value={rawCar.city}
+              onChange={(v) => updateCar(car.id, "city", v)}
+            />
+            <SmallNumberInput
+              id={`hwy-${car.id}`}
+              label="Highway mpg"
+              value={rawCar.highway}
+              onChange={(v) => updateCar(car.id, "highway", v)}
+            />
+            <SmallNumberInput
+              id={`tank-${car.id}`}
+              label="Tank (gal)"
+              value={rawCar.tank}
+              onChange={(v) => updateCar(car.id, "tank", v)}
+            />
           </div>
 
           <div className="max-w-md mx-auto pt-2 space-y-1">
@@ -342,6 +386,29 @@ function Presets({ presets, currentValue, onSelect, format }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function SmallNumberInput({ id, label, value, onChange }) {
+  return (
+    <div className="space-y-1">
+      <label
+        htmlFor={id}
+        className="block text-xs font-medium text-slate-600 dark:text-slate-400"
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        inputMode="decimal"
+        step="0.1"
+        min="0"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
     </div>
   );
 }
